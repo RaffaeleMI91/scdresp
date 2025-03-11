@@ -1,9 +1,12 @@
 def plotPCA(adata_dict, hvg_range=(2000,8500,500)):
+    
     import seaborn as sns
     import matplotlib.pyplot as plt
+    
     N_hvg_list=list(range(hvg_range))
-    for cl, adata in adata_dict.items():
-        print(f'Cell line: {cl}')
+    
+    for CL, adata in adata_dict.items():
+        print(f'Cell line: {CL}')
         #print(f'Number of cell lines:{len(adata.obs["CellLineName"].unique())}')
         fig, axes = plt.subplots(math.ceil(len(N_HVG)/4), 4, figsize=(10, 10))
         axes = axes.flatten()

@@ -1,14 +1,5 @@
 def mad_thresholds(data, nmads):
-    """
-    Calculate thresholds based on the Median Absolute Deviation (MAD).
-    
-    Parameters:
-    - data: array-like, the input data for which thresholds will be calculated.
-    - nmads: float, the number of MADs to define the upper and lower limits.
-    
-    Returns:
-    - dict with median, upper limit, and lower limit.
-    """
+  
     import numpy as np
     import astropy.stats as ap
     
@@ -23,26 +14,14 @@ def mad_thresholds(data, nmads):
 
 
 def mad_filter(adata, feature, nmads):
-    """
-    Identify outliers in a feature based on MAD thresholds.
 
-    Parameters:
-    - adata: AnnData object, contains the dataset.
-    - feature: str, the name of the feature in adata.obs to analyze.
-    - nmads: float, the number of MADs to define outlier thresholds.
-
-    Returns:
-    - pd.Series (bool) indicating whether each observation is an outlier.
-    """
     import numpy as np
 
     # Extract the feature distribution
     f_distr = adata.obs[feature]
-
     # Compute MAD thresholds
     th = mad_thresholds(f_distr, nmads)
-
     # Identify outliers
-    outlier = (f_distr < th["lower_limit"]) | (f_distr > th["upper_limit"])
+    outliers = (f_distr < th["lower_limit"]) | (f_distr > th["upper_limit"])
 
-    return outlier
+    return outliers

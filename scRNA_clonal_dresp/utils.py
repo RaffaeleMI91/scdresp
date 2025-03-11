@@ -1,22 +1,60 @@
-def doKmClustering(adata_dict, hvg_range=(2000,8500,500), n_pc=30, cl_range=(2,11)):
+def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500)):
     
-    """
-    Performs K-Means clustering on PCA-reduced gene expression data for each anndata object in `adata_dict`.
-
-    Parameters:
-    - adata_dict (dict): Dictionary of AnnData objects.
-    - hvg_range (tuple): (start, stop, step) range for the number of highly variable genes (HVGs).
-    - n_pc (int): Number of principal components (PCs) to use for clustering.
-    - cl_range (tuple): (min_clusters, max_clusters) range for K-Means clustering.
-
-    Returns:
-    - Updates `adata.obs` with K-Means cluster assignments.
-    """    
+    import scanpy as sc
     
+    for CL, adata in adata_dict.items():
+        print(f"Computing HVG for Sanger Model ID: {CL}")
+        for N in range(*hvg_range):  # Hyperparameter tuning (number of HVGs)
+            # Compute highly variable genes
+            sc.pp.highly_variable_genes(adata, n_top_genes=N)
+            # Store the new HVG selection separately
+            hvg_col_name = f"highly_variable_n{N}"
+            adata.var[hvg_col_name] = adata.var["highly_variable"].copy()
+            # Ensure HVG genes are NOT mitochondrial or ribosomal
+            if "mt" in adata.var.columns and "ribo" in adata.var.columns:
+                adata.var[hvg_col_name] = np.logical_and(
+                    np.logical_xor(
+                        np.logical_or(adata.var["mt"], adata.var["ribo"]),
+                        adata.var[hvg_col_name]
+                    ),
+                    adata.var[hvg_col_name]
+                )
+                 
+    return adata_dict
+
+def computePCA(adata_dict: dict, hvg_range: tuple(2000,8500,500)):
+    
+    import scanpy as sc
+    
+    for CL, adata in adata_dict.items(): 
+        n_hvg_fields = [f"highly_variable_n{N}" for N in range(*hvg_range)]
+        if not any(n_hvg in adata.var.columns for n_hvg in n_hvg_fields):
+            print(f"Missing HVG fields in {CL}. Compute HVG first for a range of N genes.") # in questo modo il check lo fai per cell line
+            continue
+        
+        print(f'Computing PCA for Sanger Model ID: {CL}')
+        for N in range(*hvg_range):
+            if f"highly_variable_n{N}" in adata.var.columns:
+                adata_subset = adata[:, adata.var[f"highly_variable_n{N}"]].copy()
+                sc.pp.scale(adata_subset, max_value=10)
+                sc.pp.pca(adata_subset, svd_solver='arpack')
+                adata.obsm[f"PCA_n{N}_HVG"] = adata_subset.obsm["X_pca"]
+
+    return adata_dict
+
+
+def doKmClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:int=30, cl_range:tuple=(2,11)):
+    
+    import scanpy as sc
     from sklearn.cluster import KMeans
-    
-    for idx, (CL, adata) in enumerate(adata_dict.items()):
-        print(f'Processing {idx} : {CL}')
+            
+    for CL, adata in adata_dict.items():
+        pca_fields = [f"PCA_n{N}_HVG" for N in range(*hvg_range)]
+        if not any(pca in adata.obsm.keys() for pca in pca_fields):
+            print(f"Skipping {CL}: compute PCs first!")
+            continue
+
+        print(f'Computing k-mean clusters for: {CL}')
         for N in range(*hvg_range):
             km_results = {}
             pca_key = f"PCA_n{N}_HVG"
@@ -31,20 +69,9 @@ def doKmClustering(adata_dict, hvg_range=(2000,8500,500), n_pc=30, cl_range=(2,1
             adata.obs = pd.concat([adata.obs, cluster_df], axis=1)
             adata.obs = adata.obs.copy()
 
-def doGMixClustering(adata_dict, hvg_range=(2000,8500,500), n_pc=30, cl_range=(2,11)):
+
+def doGMixClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:int=30, cl_range:tuple=(2,11)):
     
-    """
-    Apply Gaussian Mixture Model on PCA-reduced gene expression data for each anndata object in `adata_dict`.
-
-    Parameters:
-    - adata_dict (dict): Dictionary of AnnData objects.
-    - hvg_range (tuple): (start, stop, step) range for the number of highly variable genes (HVGs).
-    - n_pc (int): Number of principal components (PCs) to use for clustering.
-    - cl_range (tuple): (min_clusters, max_clusters) range for K-Means clustering.
-
-    Returns:
-    - Updates `adata.obs` with mixture assignments.
-    """
 
     from sklearn.mixture import GaussianMixture
 
