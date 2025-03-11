@@ -1,13 +1,20 @@
-def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500)):
-    
-    import scanpy as sc
+def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500), verbose: bool=True):
+    """
+    Compute Highly Variable Genes (HVGs) for each AnnData object in 'adata_dict'
+    Parameterts: 
+    - adata_dict: dict of AnnData objects
+    - hvg_range: tuple (start, stop, range) defining the range of HVGs to compute
+    - verbose: bool, wheter to print progress messages
+
+    Returns:
+    - Updated 'adata_dict' with HVG results in '.var'
+    """
     
     for CL, adata in adata_dict.items():
-        print(f"Computing HVG for Sanger Model ID: {CL}")
-        for N in range(*hvg_range):  # Hyperparameter tuning (number of HVGs)
-            # Compute highly variable genes
+        if verbose:
+            print(f"Computing HVG for Sanger Model ID: {CL}")
+        for N in range(*hvg_range):
             sc.pp.highly_variable_genes(adata, n_top_genes=N)
-            # Store the new HVG selection separately
             hvg_col_name = f"highly_variable_n{N}"
             adata.var[hvg_col_name] = adata.var["highly_variable"].copy()
             # Ensure HVG genes are NOT mitochondrial or ribosomal
@@ -22,19 +29,31 @@ def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500)):
                  
     return adata_dict
 
-def computePCA(adata_dict: dict, hvg_range: tuple(2000,8500,500)):
-    
-    import scanpy as sc
-    
+def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int],verbose:bool=True) -> dict:
+    """
+    Compute Principal Components (PCs) for each AnnData object in 'adata_dict'
+    Parameters: 
+    - adata_dict: dict of AnnData objects
+    - hvg_range: tuple (start, stop, range) defining the range of HVGs to compute
+    - verbose: bool, wheter to print progress messages
+
+    Returns:
+    - Updated 'adata_dict' with PCA results in '.obsm'
+    """
     for CL, adata in adata_dict.items(): 
-        n_hvg_fields = [f"highly_variable_n{N}" for N in range(*hvg_range)]
-        if not any(n_hvg in adata.var.columns for n_hvg in n_hvg_fields):
-            print(f"Missing HVG fields in {CL}. Compute HVG first for a range of N genes.") # in questo modo il check lo fai per cell line
+        expected_hvg_cols = [f"highly_variable_n{N}" for N in range(*hvg_range)]
+        hvg_cols = adata.var.columns[adata.var.columns.str.startswith("highly_variable_n")].to_list()
+        
+        if not set(expected_hvg_cols).issubset(set(hvg_cols)): # check nr 1
+            print(f"Missing HVG fields in {CL}. Compute HVG first for a range of N genes. N should be an element of 'hvg_range'") 
             continue
         
-        print(f'Computing PCA for Sanger Model ID: {CL}')
+        if verbose:
+            print(f'Computing PCA for Sanger Model ID: {CL}')
+        
         for N in range(*hvg_range):
-            if f"highly_variable_n{N}" in adata.var.columns:
+            hvg_col_name = f"highly_variable_n{N}"
+            if hvg_col_name in adata.var.columns: # check nr 2
                 adata_subset = adata[:, adata.var[f"highly_variable_n{N}"]].copy()
                 sc.pp.scale(adata_subset, max_value=10)
                 sc.pp.pca(adata_subset, svd_solver='arpack')
@@ -44,36 +63,39 @@ def computePCA(adata_dict: dict, hvg_range: tuple(2000,8500,500)):
 
 
 def doKmClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:int=30, cl_range:tuple=(2,11)):
-    
-    import scanpy as sc
-    from sklearn.cluster import KMeans
-            
+
     for CL, adata in adata_dict.items():
         pca_fields = [f"PCA_n{N}_HVG" for N in range(*hvg_range)]
-        if not any(pca in adata.obsm.keys() for pca in pca_fields):
-            print(f"Skipping {CL}: compute PCs first!")
+        if not any(pca in adata.obsm.keys() for pca in pca_fields): # check nr 1
+
+            print(f"Missing PCA results in {CL}. Compute Principal Components first !")
             continue
 
-        print(f'Computing k-mean clusters for: {CL}')
+        print(f'Computing k-mean clustering for: {CL}')
         for N in range(*hvg_range):
             km_results = {}
             pca_key = f"PCA_n{N}_HVG"
-            adata.obsm["X_pca"] = adata.obsm[pca_key][:, :n_pc]
-            pcomp = adata.obsm["X_pca"]
-            for cl in range(*cl_range):
-                kmeans = KMeans(n_clusters=cl, random_state=42, n_init=10)
-                km_results[f"kmeans_n{N}_{cl}_clusters"] = kmeans.fit_predict(pcomp).astype(str)     
+            if pca_key in adata.obsm.keys(): # check nr 2
+                adata.obsm["X_pca"] = adata.obsm[pca_key][:, :n_pc]
+                pcomp = adata.obsm["X_pca"]
+                for cl in range(*cl_range):
+                    kmeans = KMeans(n_clusters=cl, random_state=42, n_init=10)
+                    km_results[f"kmeans_n{N}_{cl}_clusters"] = kmeans.fit_predict(pcomp).astype(str)     
             
-            # extend adata .obs
-            cluster_df = pd.DataFrame(km_results, index=adata.obs.index)
-            adata.obs = pd.concat([adata.obs, cluster_df], axis=1)
-            adata.obs = adata.obs.copy()
+                cluster_df = pd.DataFrame(km_results, index=adata.obs.index)
+                adata.obs = pd.concat([adata.obs, cluster_df], axis=1)
+                adata.obs = adata.obs.copy()
+    
+    return(adata_dict)
 
 
 def doGMixClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:int=30, cl_range:tuple=(2,11)):
     
-
+    import pandas as pd
+    import scanpy as sc
     from sklearn.mixture import GaussianMixture
+
+
 
     for idx, (CL, adata) in enumerate(adata_dict.items()):
         print(f'Processing {idx} : {CL}')
