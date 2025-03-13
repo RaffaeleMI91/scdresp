@@ -1,4 +1,5 @@
-def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500), verbose: bool=True):
+def computeHVGs(adata_dict:dict, hvg_range:tuple[int,int,int], verbose:bool=True) -> dict:
+    
     """
     Compute Highly Variable Genes (HVGs) for each AnnData object in 'adata_dict'
     Parameterts: 
@@ -25,11 +26,12 @@ def computeHVGs(adata_dict: dict, hvg_range: tuple=(2000,8500,500), verbose: boo
                         adata.var[hvg_col_name]
                     ),
                     adata.var[hvg_col_name]
-                )
-                 
+                )           
+    
     return adata_dict
 
-def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int],verbose:bool=True) -> dict:
+def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int], verbose:bool=True) -> dict:
+    
     """
     Compute Principal Components (PCs) for each AnnData object in 'adata_dict'
     Parameters: 
@@ -40,17 +42,15 @@ def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int],verbose:bool=True) 
     Returns:
     - Updated 'adata_dict' with PCA results in '.obsm'
     """
+    
     for CL, adata in adata_dict.items(): 
         expected_hvg_cols = [f"highly_variable_n{N}" for N in range(*hvg_range)]
         hvg_cols = adata.var.columns[adata.var.columns.str.startswith("highly_variable_n")].to_list()
-        
         if not set(expected_hvg_cols).issubset(set(hvg_cols)): # check nr 1
             print(f"Missing HVG fields in {CL}. Compute HVG first for a range of N genes. N should be an element of 'hvg_range'") 
             continue
-        
         if verbose:
             print(f'Computing PCA for Sanger Model ID: {CL}')
-        
         for N in range(*hvg_range):
             hvg_col_name = f"highly_variable_n{N}"
             if hvg_col_name in adata.var.columns: # check nr 2
@@ -62,12 +62,11 @@ def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int],verbose:bool=True) 
     return adata_dict
 
 
-def doKmClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:int=30, cl_range:tuple=(2,11)):
-
+def doKmClustering(adata_dict:dict, hvg_range:tuple=[int,int,int], n_pc:int=30, cl_range:tuple=[int,int]):
     for CL, adata in adata_dict.items():
-        pca_fields = [f"PCA_n{N}_HVG" for N in range(*hvg_range)]
+        expected_pca_cols = [f"PCA_n{N}_HVG" for N in range(*hvg_range)]
+        pca_cols = adata.obsm.keys()
         if not any(pca in adata.obsm.keys() for pca in pca_fields): # check nr 1
-
             print(f"Missing PCA results in {CL}. Compute Principal Components first !")
             continue
 
