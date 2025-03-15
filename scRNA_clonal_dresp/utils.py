@@ -52,7 +52,7 @@ def computePCA(adata_dict:dict, hvg_range:tuple[int, int, int], verbose:bool=Tru
         observed_hvg_cols = set(adata.var.columns[adata.var.columns.str.startswith("highly_variable_n")])
         
         if not expected_hvg_cols.issubset(observed_hvg_cols):
-            raise ValueError(f"Missing HVGs in {CL} dataset. Please, compute top N high variable genes for a range of values first")
+            raise ValueError(f"Missing HVGs in {CL} dataset. Please, compute the top N high variable genes for a range of values first!")
             continue
 
         for N in range(*hvg_range):
@@ -91,7 +91,7 @@ def doKmClustering(adata_dict:dict, hvg_range:tuple[int,int,int], n_pc:int=30, c
         observed_pca_cols = set(adata.obsm.keys())
 
         if not expected_pca_cols.issubset(observed_pca_cols):
-            raise ValueError(f"Missing PCs in {CL} dataset. Please, compute PCA using a range of top N high variable genes first!")
+            raise ValueError(f"Missing PCs in {CL} dataset. Please, compute PCA for a range of top N high variable genes first!")
             continue
 
         for N in range(*hvg_range):
@@ -109,7 +109,7 @@ def doKmClustering(adata_dict:dict, hvg_range:tuple[int,int,int], n_pc:int=30, c
                 adata.obs = pd.concat([adata.obs, cluster_df], axis=1)
                 adata.obs = adata.obs.copy()
             else:
-                warnings.warn(f"Cannot perform K-Means clustering for {CL} with {N} HVGs. Ensure PCA, computed on the top {N} HVGs, is available in .obsm before proceeding!", UserWarning)
+                warnings.warn(f"Cannot perform K-Means clustering for {CL} with {N} HVGs. Ensure PCs computed on the top {N} HVGs are available in .obsm before proceeding!", UserWarning)
     
     return(adata_dict)
 
