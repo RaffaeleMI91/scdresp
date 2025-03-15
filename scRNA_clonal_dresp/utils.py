@@ -1,4 +1,4 @@
-def computeHVGs(adata_dict:dict, hvg_range:tuple[int,int,int], verbose:bool=True) -> dict:
+def computeHVGs(adata_dict:dict, hvg_range:tuple[int,int,int], remove_mt_rb:bool=True, verbose:bool=True) -> dict:
     
     """
     Compute Highly Variable Genes (HVGs) for each AnnData object in 'adata_dict'
@@ -17,60 +17,83 @@ def computeHVGs(adata_dict:dict, hvg_range:tuple[int,int,int], verbose:bool=True
         for N in range(*hvg_range):
             sc.pp.highly_variable_genes(adata, n_top_genes=N)
             hvg_col_name = f"highly_variable_n{N}"
-            adata.var[hvg_col_name] = adata.var["highly_variable"].copy()
+            adata.var[hvg_col_name] = adata.var["highly_variable"]
             # Ensure HVG genes are NOT mitochondrial or ribosomal
-            if "mt" in adata.var.columns and "ribo" in adata.var.columns:
-                adata.var[hvg_col_name] = np.logical_and(
-                    np.logical_xor(
-                        np.logical_or(adata.var["mt"], adata.var["ribo"]),
-                        adata.var[hvg_col_name]
-                    ),
-                    adata.var[hvg_col_name]
-                )           
-    
+            if remove_mt_rb:
+                if "mt" in adata.var.columns and "ribo" in adata.var.columns:
+                    adata.var[hvg_col_name] = np.logical_and(
+                        np.logical_xor(
+                            np.logical_or(adata.var["mt"], adata.var["ribo"]),
+                            adata.var[hvg_col_name]
+                        ),
+                            adata.var[hvg_col_name]
+                    )
     return adata_dict
 
-def computePCA(adata_dict:dict, hvg_range:tuple[int,int,int], verbose:bool=True) -> dict:
+def computePCA(adata_dict:dict, hvg_range:tuple[int, int, int], verbose:bool=True) -> dict:
     
     """
     Compute Principal Components (PCs) for each AnnData object in 'adata_dict'
-    Parameters: 
+
+    Parameters:
     - adata_dict: dict of AnnData objects
-    - hvg_range: tuple (start, stop, range) defining the range of HVGs to compute
-    - verbose: bool, wheter to print progress messages
+    - hvg_range: tuple (start, stop, step) defining the range of HVGs to compute
+    - verbose: bool, whether to print progress messages
 
     Returns:
     - Updated 'adata_dict' with PCA results in '.obsm'
     """
     
     for CL, adata in adata_dict.items(): 
-        expected_hvg_cols = [f"highly_variable_n{N}" for N in range(*hvg_range)]
-        hvg_cols = adata.var.columns[adata.var.columns.str.startswith("highly_variable_n")].to_list()
-        if not set(expected_hvg_cols).issubset(set(hvg_cols)): # check nr 1
-            print(f"Missing HVG fields in {CL}. Compute HVG first for a range of N genes. N should be an element of 'hvg_range'") 
-            continue
         if verbose:
             print(f'Computing PCA for Sanger Model ID: {CL}')
+        
+        expected_hvg_cols = {f"highly_variable_n{N}" for N in range(*hvg_range)}
+        observed_hvg_cols = set(adata.var.columns[adata.var.columns.str.startswith("highly_variable_n")])
+        
+        if not expected_hvg_cols.issubset(observed_hvg_cols):
+            raise ValueError(f"Missing HVGs in {CL} dataset. Please, compute top N high variable genes for a range of values first")
+            continue
+
         for N in range(*hvg_range):
             hvg_col_name = f"highly_variable_n{N}"
-            if hvg_col_name in adata.var.columns: # check nr 2
-                adata_subset = adata[:, adata.var[f"highly_variable_n{N}"]].copy()
+            if hvg_col_name in adata.var.columns:
+                adata_subset = adata[:, adata.var[hvg_col_name]].copy()
                 sc.pp.scale(adata_subset, max_value=10)
                 sc.pp.pca(adata_subset, svd_solver='arpack')
                 adata.obsm[f"PCA_n{N}_HVG"] = adata_subset.obsm["X_pca"]
+            else:
+                warnings.warn(f"Can't compute PCA for {CL} using {N} HVGs. Ensure the top {N} high variable genes are stored in '.var' before proceeding!", UserWarning)
 
     return adata_dict
 
+def doKmClustering(adata_dict:dict, hvg_range:tuple[int,int,int], n_pc:int=30, cl_range:tuple[int,int], verbose:bool=True) -> dict:
+    
+    """
+    Perform K-Means clustering on PCA-reduced gene expression data for each AnnData object in `adata_dict`.
 
-def doKmClustering(adata_dict:dict, hvg_range:tuple=[int,int,int], n_pc:int=30, cl_range:tuple=[int,int]):
+    Parameters:
+    - adata_dict (dict): Dictionary containing AnnData objects.
+    - hvg_range (tuple): (start, stop, step) range for the number of highly variable genes (HVGs).
+    - n_pc (int): Number of principal components (PCs) to use for clustering. Default is 30.
+    - cl_range (tuple): (min_clusters, max_clusters) range for K-Means clustering.
+    - verbose (bool): Whether to print progress messages. Default is True.
+
+    Returns:
+    - adata_dict (dict): Updated AnnData dictionary with K-Means cluster assignments in `.obs`.
+    """
+    
     for CL, adata in adata_dict.items():
-        expected_pca_cols = [f"PCA_n{N}_HVG" for N in range(*hvg_range)]
-        pca_cols = adata.obsm.keys()
-        if not any(pca in adata.obsm.keys() for pca in pca_fields): # check nr 1
-            print(f"Missing PCA results in {CL}. Compute Principal Components first !")
+        if verbose:
+            print(f'Computing k-means clustering for Sanger Model ID: {CL}')
+        
+        expected_pca_cols = {f"PCA_n{N}_HVG" for N in range(*hvg_range)}
+        observed_pca_cols = set(adata.obsm.keys())
+
+        if not expected_pca_cols.issubset(observed_pca_cols):
+            raise ValueError(f"Missing PCs in {CL} dataset. Please, compute PCA using a range of top N high variable genes first!")
             continue
 
-        print(f'Computing k-mean clustering for: {CL}')
         for N in range(*hvg_range):
             km_results = {}
             pca_key = f"PCA_n{N}_HVG"
@@ -80,10 +103,13 @@ def doKmClustering(adata_dict:dict, hvg_range:tuple=[int,int,int], n_pc:int=30, 
                 for cl in range(*cl_range):
                     kmeans = KMeans(n_clusters=cl, random_state=42, n_init=10)
                     km_results[f"kmeans_n{N}_{cl}_clusters"] = kmeans.fit_predict(pcomp).astype(str)     
-            
+                
+                # expand adata
                 cluster_df = pd.DataFrame(km_results, index=adata.obs.index)
                 adata.obs = pd.concat([adata.obs, cluster_df], axis=1)
                 adata.obs = adata.obs.copy()
+            else:
+                warnings.warn(f"Cannot perform K-Means clustering for {CL} with {N} HVGs. Ensure PCA, computed on the top {N} HVGs, is available in .obsm before proceeding!", UserWarning)
     
     return(adata_dict)
 
@@ -93,8 +119,6 @@ def doGMixClustering(adata_dict: dict, hvg_range:tuple=(2000, 8500, 500), n_pc:i
     import pandas as pd
     import scanpy as sc
     from sklearn.mixture import GaussianMixture
-
-
 
     for idx, (CL, adata) in enumerate(adata_dict.items()):
         print(f'Processing {idx} : {CL}')
